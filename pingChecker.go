@@ -1,3 +1,4 @@
+// sudo sysctl -w net.ipv4.ping_group_range="0 65535"
 package main
 
 import (
@@ -9,6 +10,8 @@ import (
 	"bufio"
 	"log"
 	"net/http"
+	"database/sql"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 const (
@@ -19,6 +22,7 @@ const (
 )
 
 var ipList = []string{}
+var db *sql.DB // global variable to share it between main and the HTTP handler
 
 // State represents the last-known state of a URL.
 type State struct {
@@ -72,8 +76,10 @@ func hostStateChange(ipAdderess string, state int) {
 	var sendedState string
 	if state == 0 {
 		sendedState = "сдох"
+		db.Query("INSERT INTO pingChecker SET `when`=now(), state=0, ip=?", ipAdderess)
 	} else {
 		sendedState = "ожил"
+		db.Query("INSERT INTO pingChecker SET `when`=now(), state=1, ip=?", ipAdderess)
 	}
 	http.Get("https://krasit.org/tSend.php?m=" + ipAdderess + "%20" + sendedState)
 	log.Printf("%s %s", sendedState, ipAdderess)
@@ -142,6 +148,18 @@ func readLine(path string) {
 }
 
 func main() {
+	var err error
+	db, err = sql.Open("mysql", os.Args[1]+":"+os.Args[2]+"@tcp("+os.Args[3]+")/"+os.Args[4]+"") // this does not really open a new connection
+
+	if err != nil {
+		log.Fatalf("Error on initializing database connection: %s", err.Error())
+	}
+	db.SetMaxIdleConns(5)
+	err = db.Ping() // This DOES open a connection if necessary. This makes sure the database is accessible
+	if err != nil {
+		log.Fatalf("Error on opening database connection: %s", err.Error())
+	}
+
 	readLine("hosts.txt")
 	// Create our input and output channels.
 	pending, complete := make(chan *Resource), make(chan *Resource)
